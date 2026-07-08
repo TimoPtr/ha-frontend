@@ -109,6 +109,28 @@ interface EMOutgoingMessageExoplayerStop extends EMMessage {
   type: "exoplayer/stop";
 }
 
+interface EMOutgoingMessageWebRTCPlayCamera extends EMMessage {
+  type: "webrtc/play_camera";
+  payload: {
+    entity_id: string;
+    muted: boolean;
+  };
+}
+
+interface EMOutgoingMessageWebRTCResize extends EMMessage {
+  type: "webrtc/resize";
+  payload: {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+  };
+}
+
+interface EMOutgoingMessageWebRTCStop extends EMMessage {
+  type: "webrtc/stop";
+}
+
 interface EMOutgoingMessageThemeUpdate extends EMMessage {
   type: "theme-update";
 }
@@ -204,6 +226,9 @@ type EMOutgoingMessageWithoutAnswer =
   | EMOutgoingMessageExoplayerPlayHLS
   | EMOutgoingMessageExoplayerResize
   | EMOutgoingMessageExoplayerStop
+  | EMOutgoingMessageWebRTCPlayCamera
+  | EMOutgoingMessageWebRTCResize
+  | EMOutgoingMessageWebRTCStop
   | EMOutgoingMessageHaptic
   | EMOutgoingMessageImportThreadCredentials
   | EMOutgoingMessageMatterCommission
@@ -332,6 +357,19 @@ export interface EMIncomingMessageMatterCommissionFinish extends EMMessage {
   payload: MatterCommissionFinish;
 }
 
+export interface ExternalAppWebRTCError {
+  entity_id: string;
+  code?: string;
+  message?: string;
+}
+
+export interface EMIncomingMessageWebRTCError {
+  id: number;
+  type: "command";
+  command: "webrtc/error";
+  payload: ExternalAppWebRTCError;
+}
+
 export type EMIncomingMessageCommands =
   | EMIncomingMessageRestart
   | EMIncomingMessageNavigate
@@ -344,7 +382,8 @@ export type EMIncomingMessageCommands =
   | EMIncomingMessageImprovDeviceDiscovered
   | EMIncomingMessageImprovDeviceSetupDone
   | EMIncomingMessageMatterCommissionFinish
-  | EMIncomingMessageKioskModeSet;
+  | EMIncomingMessageKioskModeSet
+  | EMIncomingMessageWebRTCError;
 
 type EMIncomingMessage =
   EMMessageResultSuccess | EMMessageResultError | EMIncomingMessageCommands;
@@ -366,6 +405,7 @@ export interface ExternalConfig {
   appVersion?: string;
   hasEntityAddTo?: boolean; // Supports "Add to" from more-info dialog, with action coming from external app
   hasAssistSettings?: boolean; // Shows the "This device" section in voice assistant settings
+  hasNativeWebRTC?: boolean; // Plays camera WebRTC streams with a native player instead of in the WebView
 }
 
 export interface ExternalEntityAddToAction {

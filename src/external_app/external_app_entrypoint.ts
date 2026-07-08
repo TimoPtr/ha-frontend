@@ -15,6 +15,7 @@ import type {
   EMIncomingMessageBarCodeScanAborted,
   EMIncomingMessageBarCodeScanResult,
   EMIncomingMessageCommands,
+  ExternalAppWebRTCError,
   ImprovDiscoveredDevice,
   MatterCommissionFinish,
 } from "./external_messaging";
@@ -99,6 +100,8 @@ export const handleExternalMessage = (
     barCodeListeners.forEach((listener) => listener(msg));
   } else if (msg.command === "kiosk_mode/set") {
     fireEvent(window, "hass-kiosk-mode", { enable: msg.payload.enable });
+  } else if (msg.command === "webrtc/error") {
+    fireEvent(window, "external-app-webrtc-error", msg.payload);
   } else {
     return false;
   }
@@ -118,9 +121,11 @@ declare global {
     "improv-discovered-device": ImprovDiscoveredDevice;
     "improv-device-setup-done": undefined;
     "matter-commission-finish": MatterCommissionFinish;
+    "external-app-webrtc-error": ExternalAppWebRTCError;
   }
 
   interface GlobalEventHandlersEventMap {
     "matter-commission-finish": HASSDomEvent<MatterCommissionFinish>;
+    "external-app-webrtc-error": HASSDomEvent<ExternalAppWebRTCError>;
   }
 }

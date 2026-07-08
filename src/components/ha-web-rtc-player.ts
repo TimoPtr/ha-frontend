@@ -5,7 +5,9 @@ import { css, html, LitElement } from "lit";
 import { customElement, property, query, state } from "lit/decorators";
 import { ifDefined } from "lit/directives/if-defined";
 import { styleMap } from "lit/directives/style-map";
+import type { HASSDomEvent } from "../common/dom/fire_event";
 import { fireEvent } from "../common/dom/fire_event";
+import { nextRender } from "../common/util/render-status";
 import {
   addWebRtcCandidate,
   fetchWebRtcClientConfiguration,
@@ -14,7 +16,8 @@ import {
   webRtcOffer,
   type WebRtcOfferEvent,
 } from "../data/camera";
-import { apiContext, connectionContext } from "../data/context";
+import { apiContext, configContext, connectionContext } from "../data/context";
+import type { ExternalAppWebRTCError } from "../external_app/external_messaging";
 import "./ha-alert";
 
 /**
@@ -31,6 +34,10 @@ class HaWebRtcPlayer extends LitElement {
   @state()
   @consume({ context: connectionContext, subscribe: true })
   private _connection!: ContextType<typeof connectionContext>;
+
+  @state()
+  @consume({ context: configContext, subscribe: true })
+  private _config!: ContextType<typeof configContext>;
 
   @property() public entityid?: string;
 
@@ -53,6 +60,12 @@ class HaWebRtcPlayer extends LitElement {
   @property({ attribute: "poster-url" }) public posterUrl?: string;
 
   @state() private _error?: string;
+
+  @state() private _nativePlayer = false;
+
+  // Once the native player reported an error for this entity, keep using the
+  // in-browser player for the rest of this element's life
+  private _nativePlayerFailed = false;
 
   @query("#remote-stream") private _videoEl!: HTMLVideoElement;
 
@@ -97,6 +110,8 @@ class HaWebRtcPlayer extends LitElement {
           height: this.aspectRatio == null ? "100%" : "auto",
           aspectRatio: this.aspectRatio,
           objectFit: this.fitMode,
+          // The native player renders in an overlay at this element's position
+          visibility: this._nativePlayer ? "hidden" : undefined,
         })}
       ></video>
     `;
@@ -127,8 +142,20 @@ class HaWebRtcPlayer extends LitElement {
     this._startWebRtc();
   }
 
+  private get _useNativeWebRTC(): boolean {
+    return (
+      Boolean(this._config?.auth.external?.config.hasNativeWebRTC) &&
+      !this._nativePlayerFailed
+    );
+  }
+
   private async _startWebRtc(): Promise<void> {
     this._cleanUp();
+
+    if (this.entityid && this._useNativeWebRTC) {
+      this._startNativeWebRtc();
+      return;
+    }
 
     // Browser support required for WebRTC
     if (typeof RTCPeerConnection === "undefined") {
@@ -191,6 +218,51 @@ class HaWebRtcPlayer extends LitElement {
     this._peerConnection.addTransceiver("audio", { direction: "recvonly" });
     this._peerConnection.addTransceiver("video", { direction: "recvonly" });
   }
+
+  private _startNativeWebRtc(): void {
+    this._error = undefined;
+    this._nativePlayer = true;
+    window.addEventListener("resize", this._resizeNativePlayer);
+    window.addEventListener(
+      "external-app-webrtc-error",
+      this._handleNativePlayerError
+    );
+    this.updateComplete.then(() => nextRender()).then(this._resizeNativePlayer);
+    this._config.auth.external!.fireMessage({
+      type: "webrtc/play_camera",
+      payload: {
+        entity_id: this.entityid!,
+        muted: this.muted,
+      },
+    });
+  }
+
+  private _resizeNativePlayer = () => {
+    if (!this._videoEl || !this._nativePlayer) {
+      return;
+    }
+    const rect = this._videoEl.getBoundingClientRect();
+    this._config.auth.external!.fireMessage({
+      type: "webrtc/resize",
+      payload: {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+      },
+    });
+  };
+
+  private _handleNativePlayerError = (
+    ev: HASSDomEvent<ExternalAppWebRTCError>
+  ) => {
+    if (ev.detail.entity_id !== this.entityid) {
+      return;
+    }
+    this._nativePlayerFailed = true;
+    // Fall back to the in-browser player for the rest of the session
+    this._startWebRtc();
+  };
 
   private _startNegotiation = async () => {
     if (!this._peerConnection) {
@@ -370,6 +442,15 @@ class HaWebRtcPlayer extends LitElement {
   }
 
   private _cleanUp() {
+    if (this._nativePlayer) {
+      window.removeEventListener("resize", this._resizeNativePlayer);
+      window.removeEventListener(
+        "external-app-webrtc-error",
+        this._handleNativePlayerError
+      );
+      this._config.auth.external!.fireMessage({ type: "webrtc/stop" });
+      this._nativePlayer = false;
+    }
     if (this._remoteStream) {
       this._remoteStream.getTracks().forEach((track) => {
         track.stop();
